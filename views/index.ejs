@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Website Screenshot</title>
+    <meta name="description" content="Captura y comparte capturas de pantalla de sitios web fácilmente.">
+    <link rel="icon" type="image/x-icon" href="/public/assets/logo.ico">
+    <!-- Incluir html2canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        /* Reset básico */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: #ffffff;
+            padding: 20px 40px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header img {
+            height: 60px;
+        }
+
+        header h2 {
+            margin-left: 20px;
+            font-size: 1.5rem;
+            color: #333;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .inner-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .inner-box p {
+            margin-right: 10px;
+            font-weight: 500;
+            color: #444;
+        }
+
+        .inner-box input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            width: 250px;
+        }
+
+        .inner-box button {
+            padding: 8px 16px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .inner-box button:hover {
+            background-color: #0056b3;
+        }
+         /* Estilo para botón deshabilitado */
+        .inner-box button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        main {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        footer {
+            background-color: #333;
+            color: white;
+            text-align: center;
+            padding: 15px 0;
+            font-size: 0.9rem;
+            margin-top: auto; /* Empuja el footer hacia abajo */
+        }
+
+        /* Contenedor principal de la visualización */
+        .screenshot-display-container {
+            padding: 0;
+            text-align: center;
+            display: flex; /* Cambiado a flex para mostrar estado */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center; /* Centra el contenido cuando no hay imagen */
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            overflow: hidden; /* Importante para html2canvas */
+            min-height: 300px; /* Altura mínima para ver estado */
+        }
+
+        /* Estilos para la barra del navegador simulada */
+        .browser-bar {
+            /* display: none; // Ahora controlado por JS */
+            width: 100%;
+            background-color: #e8e8e8;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #ccc;
+             /* Asegurar que esté visible para html2canvas */
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .browser-controls {
+            display: flex;
+            gap: 6px;
+            margin-right: 15px;
+        }
+
+        .browser-controls span {
+            display: block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .browser-controls span:nth-child(1) { background-color: #ff5f57; }
+        .browser-controls span:nth-child(2) { background-color: #febc2e; }
+        .browser-controls span:nth-child(3) { background-color: #28c840; }
+
+        .address-bar {
+            flex-grow: 1;
+            background-color: #ffffff;
+            border-radius: 4px;
+            padding: 4px 10px;
+            border: 1px solid #d1d1d1;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        #display-url {
+            font-size: 0.85rem;
+            color: #333;
+            font-family: monospace;
+        }
+
+        #my-img {
+            max-width: 100%;
+            max-height: 75vh;
+            object-fit: contain;
+            display: block;
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
+            margin-top: 0;
+            box-shadow: none;
+            /* Asegurar que la imagen base sea visible */
+             visibility: visible;
+             opacity: 1;
+        }
+
+        /* Estado inicial/carga/error */
+        .status-message {
+            color: #666;
+            font-size: 1.1rem;
+            padding: 40px;
+        }
+
+
+        .download-button {
+            display: none; /* Oculto por defecto */
+            margin: 15px 0;
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 1rem;
+            transition: background-color 0.3s ease;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+        }
+
+        .download-button:hover {
+            background-color: #218838;
+        }
+         /* Estilo para el botón mientras se genera la descarga */
+         .download-button.generating {
+            background-color: #ffc107; /* Amarillo */
+            color: #333;
+            cursor: wait;
+         }
+
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="header-left">
+            <img src="/public/assets/logo.avif" alt="Logo" />
+            <h2>Website Screenshot</h2>
+        </div>
+        <div class="inner-box">
+            <p>Captura sitio web</p>
+            <input type="text" id="urk" placeholder="website.com o link..." />
+            <button onclick="getScreenshot()">Capturar</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Contenedor para la visualización -->
+        <div id="screenshot-container" class="screenshot-display-container">
+            <!-- Estado inicial -->
+            <div id="status-placeholder" class="status-message">
+                La captura generada aparecerá aquí.
+            </div>
+
+            <!-- Barra de Navegador Simulada (oculta inicialmente por contenedor) -->
+            <div id="browser-bar" class="browser-bar" style="display: none;">
+                <div class="browser-controls">
+                    <span></span><span></span><span></span>
+                </div>
+                <div class="address-bar">
+                    <span id="display-url"></span>
+                </div>
+            </div>
+
+            <!-- Imagen (oculta inicialmente por contenedor) -->
+            <img id="my-img" src="#" alt="" style="display: none;" />
+
+             <!-- Botón de Descarga (fuera de la imagen, dentro del contenedor visual) -->
+             <a id="download-link" class="download-button" href="#" download="screenshot.png">
+                 Descargar Imagen
+             </a>
+        </div>
+
+    </main>
+
+    <footer>
+        Jorge Espinoza © 2025
+    </footer>
+
+    <script>
+        // Obtener referencias a elementos del DOM
+        const downloadLink = document.getElementById('download-link');
+        const imageElement = document.getElementById('my-img');
+        const browserBar = document.getElementById('browser-bar');
+        const displayUrlElement = document.getElementById('display-url');
+        const urlInput = document.querySelector('#urk');
+        const captureButton = document.querySelector('.inner-box button');
+        const screenshotContainer = document.getElementById('screenshot-container'); // El div que envuelve barra e imagen
+        const statusPlaceholder = document.getElementById('status-placeholder');
+
+        // Variable para almacenar la URL de datos combinada
+        let combinedImageDataUrl = null;
+
+
+        function resetUI() {
+             // Ocultar elementos generados
+            browserBar.style.display = 'none';
+            imageElement.style.display = 'none';
+            imageElement.src = '#'; // Limpiar src
+            downloadLink.style.display = 'none';
+            downloadLink.classList.remove('generating'); // Quitar estado de generación
+            downloadLink.href = '#'; // Resetear href
+
+            // Mostrar placeholder
+            statusPlaceholder.textContent = 'La captura generada aparecerá aquí.';
+            statusPlaceholder.style.display = 'block';
+
+            // Limpiar URL y datos combinados
+            displayUrlElement.textContent = '';
+            combinedImageDataUrl = null;
+
+            // Habilitar botón si no estaba ya
+             captureButton.disabled = false;
+             captureButton.textContent = 'Capturar';
+        }
+
+        async function getScreenshot() {
+            const urlWebsite = urlInput.value.trim();
+
+             // Resetear UI antes de empezar
+             resetUI();
+
+
+            if (!urlWebsite) {
+                alert("Ingresa una URL válida");
+                return;
+            }
+
+            // Deshabilitar botón y mostrar estado de carga
+            captureButton.disabled = true;
+            captureButton.textContent = 'Capturando...';
+            statusPlaceholder.textContent = 'Generando captura...'; // Actualizar placeholder
+
+            let fetchUrl = urlWebsite;
+            if (!fetchUrl.startsWith('http://') && !fetchUrl.startsWith('https://')) {
+                fetchUrl = 'http://' + fetchUrl;
+            }
+
+            try {
+                console.log(`Intentando capturar: ${fetchUrl}`);
+                const encodedUrl = btoa(fetchUrl);
+                const res = await fetch(`/${encodedUrl}`, { method: 'POST' });
+
+                if (!res.ok) {
+                    let errorMsg = `Error del servidor: ${res.status} ${res.statusText}`;
+                     try {
+                        const errorBody = await res.json();
+                         if (errorBody && errorBody.error) errorMsg += ` - ${errorBody.error}`;
+                    } catch (e) {}
+                    throw new Error(errorMsg);
+                }
+
+                const resJson = await res.json();
+
+                if (resJson && resJson.content && resJson.content.startsWith('data:image')) {
+                     console.log("Screenshot recibido del servidor.");
+                     statusPlaceholder.textContent = 'Procesando imagen para descarga...'; // Nuevo estado
+
+                    // 1. Preparar y mostrar la UI como se ve en pantalla
+                    imageElement.src = resJson.content; // Establecer src de la imagen original
+                    imageElement.alt = `Captura de ${urlWebsite}`;
+
+                    let displayUrl = urlWebsite;
+                    if (!displayUrl.startsWith('http://') && !displayUrl.startsWith('https://')) {
+                        displayUrl = 'https://' + displayUrl;
+                    }
+                    displayUrlElement.textContent = displayUrl;
+
+                    // Mostrar la barra y la imagen REAL
+                    browserBar.style.display = 'flex';
+                    imageElement.style.display = 'block';
+                    statusPlaceholder.style.display = 'none'; // Ocultar placeholder
+
+                     // Asegurarse de que la imagen se haya cargado antes de usar html2canvas
+                     // Usaremos un pequeño delay o un evento onload si es necesario,
+                     // pero html2canvas suele manejarlo bien si el src ya está puesto.
+                     // Para mayor seguridad, podríamos envolver html2canvas en imageElement.onload
+
+                    // 2. Usar html2canvas para generar la imagen combinada para la descarga
+                     await generateCombinedImageForDownload(urlWebsite, displayUrl);
+
+
+                } else {
+                    throw new Error("La respuesta del servidor no contiene una imagen válida.");
+                }
+
+            } catch (err) {
+                console.error("Error detallado:", err);
+                alert(`Ocurrió un error al capturar la imagen:\n${err.message}`);
+                resetUI(); // Resetear en caso de error de fetch
+                statusPlaceholder.textContent = 'Error al generar la captura.'; // Mostrar error
+            } finally {
+                 // Volver a habilitar el botón (ya se hace en resetUI o al final de generateCombinedImage)
+                 // captureButton.disabled = false;
+                 // captureButton.textContent = 'Capturar';
+            }
+        }
+
+       async function generateCombinedImageForDownload(originalUrl, displayUrl) {
+            // Mostrar el botón de descarga pero en estado 'generando'
+            downloadLink.style.display = 'inline-block';
+            downloadLink.textContent = 'Generando descarga...';
+            downloadLink.classList.add('generating');
+            downloadLink.href = '#'; // Aún no hay URL
+
+           try {
+               console.log("Iniciando html2canvas en:", screenshotContainer);
+               // Opciones para html2canvas (opcional, pero útil)
+               const options = {
+                   useCORS: true, // Importante si la imagen base (example.jpg) o fuentes vienen de otro dominio
+                   allowTaint: true, // Puede ser necesario dependiendo de la imagen
+                   logging: true, // Para depuración
+                   // scale: window.devicePixelRatio // Para mejor resolución en pantallas HiDPI
+                   backgroundColor: '#ffffff' // Fondo por si hay transparencias
+               };
+
+                // Esperar un pequeño instante para asegurar que el DOM se actualizó visualmente
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+
+               const canvas = await html2canvas(screenshotContainer, options);
+               console.log("html2canvas completado.");
+
+               // 3. Convertir el canvas a Data URL
+               const mimeType = imageElement.src.match(/data:(image\/\w+);/)?.[1] || 'image/png';
+               combinedImageDataUrl = canvas.toDataURL(mimeType, 1); // 0.95 = calidad para jpeg/webp
+
+               // 4. Actualizar el enlace de descarga
+               downloadLink.href = combinedImageDataUrl;
+
+               // Establecer nombre de archivo dinámico
+               const extension = mimeType.split('/')[1];
+               let filenameBase = 'screenshot';
+               try {
+                   const urlObj = new URL(displayUrl);
+                   filenameBase = urlObj.hostname.replace(/^www\./, '').replace(/\./g, '_');
+               } catch (e) {
+                    filenameBase = originalUrl.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/[\/\?#:].*$/, '').replace(/\./g, '_');
+               }
+               downloadLink.download = `${filenameBase}_full_screenshot.${extension}`;
+
+               // Actualizar el botón a estado normal
+               downloadLink.textContent = 'Descargar Imagen';
+               downloadLink.classList.remove('generating');
+               console.log("Enlace de descarga actualizado con imagen combinada.");
+
+
+           } catch (error) {
+               console.error("Error durante html2canvas:", error);
+               alert("Error al generar la imagen combinada para descargar. Se descargará solo la captura.");
+               // Fallback: permitir descargar la imagen original sin la barra
+               downloadLink.href = imageElement.src; // Usar la imagen original como fallback
+                downloadLink.textContent = 'Descargar (solo captura)';
+               downloadLink.classList.remove('generating');
+                // Actualizar nombre de archivo para el fallback
+               const mimeTypeMatch = imageElement.src.match(/data:(image\/\w+);/);
+               const extension = mimeTypeMatch ? mimeTypeMatch[1].split('/')[1] : 'png';
+               let filenameBase = 'screenshot';
+               try {
+                  const urlObj = new URL(displayUrl);
+                  filenameBase = urlObj.hostname.replace(/^www\./, '').replace(/\./g, '_');
+               } catch (e) { filenameBase = originalUrl.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/[\/\?#:].*$/, '').replace(/\./g, '_');}
+               downloadLink.download = `${filenameBase}_screenshot.${extension}`;
+
+
+           } finally {
+               // Volver a habilitar el botón de captura principal
+               captureButton.disabled = false;
+               captureButton.textContent = 'Capturar';
+           }
+       }
+
+
+         // Permitir captura presionando Enter en el input
+         urlInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                getScreenshot();
+            }
+         });
+
+         // Llamada inicial para asegurar el estado correcto
+         resetUI();
+
+    </script>
+</body>
+
+</html>
