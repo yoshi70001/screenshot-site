@@ -1,18 +1,36 @@
-import { launch } from "puppeteer";
+// playwright-bot.js
+import { chromium, firefox, webkit } from "playwright"; // Import desired browsers
+
+// --- Type Definitions (Adjusted for Playwright) ---
+/**
+ * @typedef {import("playwright").Browser} Browser
+ * @typedef {import("playwright").Page} Page
+ * @typedef {import("playwright").Route} Route
+ * @typedef {import("playwright").Request} Request
+ * @typedef {import("playwright").Response} Response
+ * @typedef {import("playwright").BrowserContext} BrowserContext // Often used, though not directly here yet
+ * @typedef {import("playwright").LaunchOptions} LaunchOptions
+ * @typedef {import("playwright").ViewportSize} ViewportSize
+ * @typedef {import("playwright").PageGotoOptions} PageGotoOptions
+ * @typedef {import("playwright").PageScreenshotOptions} PageScreenshotOptions
+ * @typedef {'load' | 'domcontentloaded' | 'networkidle' | 'commit'} WaitUntilState
+ * @typedef {import("playwright").PageWaitForLoadStateOptions} PageWaitForLoadStateOptions
+ */
 
 // Default options for the Bot
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-const DEFAULT_VIEWPORT = { width: 1920, height: 1080, deviceScaleFactor: 1 };
+const DEFAULT_VIEWPORT = { width: 1920, height: 1080 }; // Playwright ViewportSize doesn't include deviceScaleFactor directly in the main type like Puppeteer's Viewport
 const DEFAULT_GOTO_TIMEOUT = 30000; // 30 seconds
-const DEFAULT_NAVIGATION_WAIT = "networkidle2"; // Often faster and sufficient than networkidle0
+const DEFAULT_NAVIGATION_WAIT = "networkidle"; // Playwright's equivalent, often robust
 
 /**
  * @typedef {Object} BotOptions
- * @property {import("puppeteer").LaunchOptions} [launchOptions] - Puppeteer launch options. Defaults will be merged with { headless: true }.
+ * @property {LaunchOptions} [launchOptions] - Playwright launch options. Defaults will be merged with { headless: true }.
+ * @property {'chromium' | 'firefox' | 'webkit'} [browserType='chromium'] - Type of browser to launch.
  * @property {string} [userAgent] - User agent string. Defaults to Googlebot.
- * @property {import("puppeteer").Viewport} [viewport] - Viewport settings. Defaults to 1920x1080.
- * @property {boolean} [optimizeLoad=false] - If true, enables request interception to potentially block resources.
+ * @property {ViewportSize} [viewport] - Viewport settings. Defaults to 1920x1080.
+ * @property {boolean} [optimizeLoad=false] - If true, enables request routing to potentially block resources.
  * @property {Object} [blockResources] - Specifies resource types to block if optimizeLoad is true.
  * @property {boolean} [blockResources.images=true] - Block images.
  * @property {boolean} [blockResources.css=false] - Block stylesheets.
@@ -21,26 +39,29 @@ const DEFAULT_NAVIGATION_WAIT = "networkidle2"; // Often faster and sufficient t
 
 /**
  * @typedef {Object} SetPageOptions
- * @property {import("puppeteer").PuppeteerLifeCycleEvent | import("puppeteer").PuppeteerLifeCycleEvent[]} [waitUntil] - When to consider navigation successful. Defaults to 'networkidle2'.
+ * @property {WaitUntilState} [waitUntil] - When to consider navigation successful. Defaults to 'networkidle'.
  * @property {number} [timeout] - Navigation timeout in milliseconds. Defaults to 30000.
  * @property {boolean} [waitForNetworkIdle=false] - Explicitly wait for network idle after initial navigation (use cautiously).
- * @property {import("puppeteer").WaitForNetworkIdleOptions} [networkIdleOptions] - Options for waitForNetworkIdle if used.
- * @property {import("puppeteer").NavigationOptions} [gotoOptions] - Additional options for page.goto().
+ * @property {PageWaitForLoadStateOptions} [networkIdleOptions] - Options for waitForLoadState('networkidle') if used.
+ * @property {PageGotoOptions} [gotoOptions] - Additional options for page.goto().
  */
 
 /**
  * @typedef {Object} ScreenshotOptions
  * @property {boolean} [fullPage=false] - Capture the full scrollable page. Defaults to false (viewport).
- * @property {'png' | 'jpeg' | 'webp'} [type='png'] - Image type.
- * @property {number} [quality] - Quality for 'jpeg' or 'webp' (0-100).
- * @property {import("puppeteer").ScreenshotOptions} [screenshotOptions] - Additional options for page.screenshot().
+ * @property {'png' | 'jpeg'} [type='png'] - Image type (Playwright screenshot supports png/jpeg).
+ * @property {number} [quality] - Quality for 'jpeg' (0-100).
+ * @property {PageScreenshotOptions} [screenshotOptions] - Additional options for page.screenshot().
  */
 
 class Bot {
+  /** @type {Browser | null} */
   #browser = null;
+  /** @type {Page | null} */
   #page = null;
-  #options; // Store combined options
-  #isInterceptionEnabled = false; // Track request interception state
+  /** @type {Required<BotOptions>} */ // Use Required to ensure all properties exist after merge
+  #options;
+  #isRoutingEnabled = false; // Track request routing state
 
   /**
    * Creates an instance of the Bot.
@@ -50,6 +71,7 @@ class Bot {
     // Merge default and user-provided options
     this.#options = {
       launchOptions: { headless: true, ...options.launchOptions },
+      browserType: options.browserType || 'chromium',
       userAgent: options.userAgent || DEFAULT_USER_AGENT,
       viewport: options.viewport || DEFAULT_VIEWPORT,
       optimizeLoad: options.optimizeLoad ?? false,
@@ -57,13 +79,13 @@ class Bot {
         images: options.blockResources?.images ?? true,
         css: options.blockResources?.css ?? false,
         fonts: options.blockResources?.fonts ?? false,
-        ...options.blockResources, // Allow overriding specific types
+        ...(options.blockResources || {}), // Allow overriding specific types
       },
     };
   }
 
   /**
-   * Launches the Puppeteer browser and creates a new page.
+   * Launches the Playwright browser and creates a new page.
    * @throws {Error} If browser launch or page creation fails.
    */
   async startBrowser() {
@@ -72,26 +94,33 @@ class Bot {
       return;
     }
     try {
-      this.#browser = await launch(this.#options.launchOptions);
-      this.#page = await this.#browser.newPage();
+      const browserLauncher = { chromium, firefox, webkit }[this.#options.browserType];
+      if (!browserLauncher) {
+          throw new Error(`Unsupported browser type: ${this.#options.browserType}`);
+      }
+
+      this.#browser = await browserLauncher.launch(this.#options.launchOptions);
+      this.#page = await this.#browser.newPage({ // Pass viewport and userAgent during creation for efficiency
+          userAgent: this.#options.userAgent,
+          viewport: this.#options.viewport, // Playwright uses viewport directly here
+      });
 
       // Handle unexpected browser closure
       this.#browser.on("disconnected", () => {
-        console.warn("Puppeteer browser disconnected unexpectedly.");
+        console.warn("Playwright browser disconnected unexpectedly.");
         this.#browser = null;
         this.#page = null;
-        this.#isInterceptionEnabled = false; // Reset interception state
+        this.#isRoutingEnabled = false; // Reset routing state
       });
 
-      await this.#page.setUserAgent(this.#options.userAgent);
-      await this.#page.setViewport(this.#options.viewport);
+      // No need to set userAgent/viewport again as they were set on page creation
 
       // Setup resource blocking if requested
       if (this.#options.optimizeLoad) {
-        await this.#enableResourceBlocking();
+        await this.#setupResourceBlocking();
       }
 
-      console.log("Browser started successfully.");
+      console.log(`Browser (${this.#options.browserType}) started successfully.`);
     } catch (error) {
       console.error("Failed to start browser:", error);
       await this.closeBrowser(); // Attempt cleanup on failure
@@ -100,52 +129,54 @@ class Bot {
   }
 
   /**
-   * Enables request interception to block specified resources.
+   * Enables request routing to block specified resources.
    * @private
    */
-  async #enableResourceBlocking() {
-    if (!this.#page || this.#isInterceptionEnabled) return;
+  async #setupResourceBlocking() {
+    if (!this.#page || this.#isRoutingEnabled) return;
 
     try {
-      await this.#page.setRequestInterception(true);
-      this.#isInterceptionEnabled = true;
-
-      this.#page.on("request", this.#handleRequestInterception);
-      console.log("Resource blocking enabled.");
+      // Use page.route to intercept requests. '**/*' matches all URLs.
+      await this.#page.route('**/*', this.#handleRequestRouting);
+      this.#isRoutingEnabled = true;
+      console.log("Resource blocking (routing) enabled.");
     } catch (error) {
-      console.error("Failed to enable request interception:", error);
-      this.#isInterceptionEnabled = false; // Ensure state is correct on error
+      console.error("Failed to enable request routing:", error);
+      this.#isRoutingEnabled = false; // Ensure state is correct on error
     }
   }
 
   /**
-   * Disables request interception.
+   * Disables request routing.
    * @private
    */
-  async #disableResourceBlocking() {
-    if (!this.#page || !this.#isInterceptionEnabled) return;
+  async #removeResourceBlocking() {
+    if (!this.#page || !this.#isRoutingEnabled) return;
 
     try {
-      this.#page.off("request", this.#handleRequestInterception); // Remove listener first
-      await this.#page.setRequestInterception(false);
-      this.#isInterceptionEnabled = false;
-      console.log("Resource blocking disabled.");
+      // Must pass the *same handler function* used in page.route
+      await this.#page.unroute('**/*', this.#handleRequestRouting);
+      this.#isRoutingEnabled = false;
+      console.log("Resource blocking (routing) disabled.");
     } catch (error) {
-      // Ignore errors if interception was already disabled somehow or page closed
-      if (!error.message.includes("Request Interception is not enabled")) {
-        console.warn("Error disabling request interception:", error);
-      }
+        // Ignore errors if page is closing or routing already disabled
+        if (!error.message.includes('Page closed') && !error.message.includes('has been closed')) {
+             console.warn("Error disabling request routing:", error);
+        }
       // Ensure state is reset even on error
-      this.#isInterceptionEnabled = false;
+      this.#isRoutingEnabled = false;
     }
   }
 
   /**
-   * Request handler for interception. Aborts requests based on blockResources options.
-   * @param {import("puppeteer").HTTPRequest} request - The intercepted request.
+   * Request handler for routing. Aborts requests based on blockResources options.
+   * Needs to be an arrow function property to maintain 'this' context and
+   * provide a stable reference for unroute.
+   * @param {Route} route - The route object.
+   * @param {Request} request - The request object.
    * @private
    */
-  #handleRequestInterception = (request) => {
+  #handleRequestRouting = async (route, request) => {
     const resourceType = request.resourceType();
     const blockSettings = this.#options.blockResources;
     let shouldBlock = false;
@@ -158,29 +189,26 @@ class Bot {
       shouldBlock = true;
     }
 
-    if (shouldBlock) {
-      request
-        .abort()
-        .catch((err) =>
-          console.warn(
-            `Failed to abort request ${request.url()}: ${err.message}`
-          )
-        );
-    } else {
-      request
-        .continue()
-        .catch((err) =>
-          console.warn(
-            `Failed to continue request ${request.url()}: ${err.message}`
-          )
-        );
+    try {
+        if (shouldBlock) {
+            await route.abort();
+        } else {
+            await route.continue();
+        }
+    } catch (error) {
+        // Ignore errors if the page is closing during the async operation
+        if (!error.message.includes('Target closed') && !error.message.includes('Page closed')) {
+            console.warn(`Error processing request ${request.url()}: ${error.message}`);
+        }
     }
   };
+
 
   /**
    * Navigates the page to a specified URL.
    * @param {string} url - The URL to navigate to.
    * @param {SetPageOptions} [options={}] - Navigation options.
+   * @returns {Promise<Response | null>} The main resource response.
    * @throws {Error} If navigation fails or page is not available.
    */
   async setPage(url, options = {}) {
@@ -194,22 +222,24 @@ class Bot {
       ...(options.gotoOptions || {}), // Allow overriding specific goto options
     };
 
+    let response = null;
     try {
       console.log(`Navigating to ${url} with options:`, gotoOptions);
-      const response = await this.#page.goto(url, gotoOptions);
+      response = await this.#page.goto(url, gotoOptions);
       console.log(
-        `Navigation to ${url} finished with status: ${response?.status()}`
+        `Navigation to ${url} finished with status: ${response?.status() ?? 'N/A'}`
       );
 
       // Optional explicit wait for network idle (use carefully)
       if (options.waitForNetworkIdle) {
         console.log("Explicitly waiting for network idle...");
-        await this.#page.waitForNetworkIdle({
-          timeout: DEFAULT_GOTO_TIMEOUT, // Reuse default timeout
-          ...(options.networkIdleOptions || {}),
+        await this.#page.waitForLoadState('networkidle', {
+            timeout: options.networkIdleOptions?.timeout ?? DEFAULT_GOTO_TIMEOUT, // Reuse default timeout or use specific one
+             ...(options.networkIdleOptions || {}),
         });
         console.log("Network is idle.");
       }
+      return response;
     } catch (error) {
       console.error(`Failed to navigate to ${url}:`, error);
       throw error; // Re-throw for external handling
@@ -227,17 +257,24 @@ class Bot {
       throw new Error("Browser not started or page not available.");
     }
 
+    // Map options (Playwright doesn't use 'encoding' directly for base64 buffer)
     const screenshotOptions = {
-      encoding: "base64",
       fullPage: options.fullPage || false,
       type: options.type || "png",
-      quality: options.quality, // Only used for jpeg/webp
+      quality: options.quality, // Only used for jpeg
+      timeout: DEFAULT_GOTO_TIMEOUT, // Add a reasonable timeout
       ...(options.screenshotOptions || {}), // Allow overriding specific screenshot options
     };
 
+    // Remove invalid options for Playwright screenshot if they exist
+    delete screenshotOptions.encoding;
+
     try {
-      const data = await this.#page.screenshot(screenshotOptions);
-      return `data:image/${screenshotOptions.type};base64,${data}`;
+      // Get the screenshot as a buffer
+      const buffer = await this.#page.screenshot(screenshotOptions);
+      // Convert buffer to base64 string
+      const base64Data = buffer.toString("base64");
+      return `data:image/${screenshotOptions.type};base64,${base64Data}`;
     } catch (error) {
       console.error("Failed to take screenshot:", error);
       throw error; // Re-throw for external handling
@@ -245,17 +282,21 @@ class Bot {
   }
 
   /**
-   * Closes the Puppeteer browser. Safe to call multiple times.
+   * Closes the Playwright browser. Safe to call multiple times.
    */
   async closeBrowser() {
-    if (this.#isInterceptionEnabled) {
-      // Attempt to disable cleanly if page still exists
-      if (this.#page) {
-        await this.#disableResourceBlocking();
-      } else {
-        this.#isInterceptionEnabled = false; // Just reset flag if page is gone
-      }
+    // Attempt to disable routing cleanly before closing
+    if (this.#isRoutingEnabled && this.#page) {
+        // Check if page is still open before trying to unroute
+        if (!this.#page.isClosed()) {
+            await this.#removeResourceBlocking();
+        } else {
+             this.#isRoutingEnabled = false; // Just reset flag if page is gone
+        }
+    } else {
+        this.#isRoutingEnabled = false; // Ensure flag is reset
     }
+
 
     if (this.#browser) {
       console.log("Closing browser...");
@@ -269,61 +310,72 @@ class Bot {
         // Ensure references are cleared even if close fails
         this.#browser = null;
         this.#page = null;
-        this.#isInterceptionEnabled = false;
+        this.#isRoutingEnabled = false;
       }
     } else {
-      // console.log("Browser already closed or not started.");
+       // console.log("Browser already closed or not started.");
     }
   }
 
   /**
-   * Provides direct access to the Puppeteer Page object for advanced use cases.
-   * @returns {import("puppeteer").Page | null} The Page object or null if not initialized.
+   * Provides direct access to the Playwright Page object for advanced use cases.
+   * @returns {Page | null} The Page object or null if not initialized.
    */
   get page() {
     return this.#page;
   }
 
   /**
-   * Provides direct access to the Puppeteer Browser object for advanced use cases.
-   * @returns {import("puppeteer").Browser | null} The Browser object or null if not initialized.
+   * Provides direct access to the Playwright Browser object for advanced use cases.
+   * @returns {Browser | null} The Browser object or null if not initialized.
    */
   get browser() {
     return this.#browser;
   }
 }
 
-export { Bot };
-
 // --- Example Usage ---
-/*
 async function runBot() {
   const bot = new Bot({
+    // browserType: 'firefox', // Example: Use Firefox
     // launchOptions: { headless: false, slowMo: 50 }, // Example: Run non-headless with slow motion
     // userAgent: "MyCustomBot/1.0",
     optimizeLoad: true, // Enable resource blocking
     blockResources: {
-        images: true, // Block images (default is true when optimizeLoad is true)
-        css: true,    // Also block CSS
-        fonts: true   // Also block fonts
+      images: true,
+      css: true,
+      fonts: true
     }
   });
 
   try {
     await bot.startBrowser();
 
-    await bot.setPage("https://httpbin.org/get", { // A simple page for testing blocked resources
-        waitUntil: 'domcontentloaded' // Faster wait for simple pages
+    // Navigate to a page - httpbin is good for seeing request details
+    await bot.setPage("https://httpbin.org/get", {
+        waitUntil: 'domcontentloaded' // Faster wait for this simple API page
     });
     console.log("Page loaded.");
 
-    const screenshotData = await bot.takeScreenshot({ fullPage: true, type: 'jpeg', quality: 80 });
+    // Example: Get content (if needed, though blocking might affect it)
+    // if (bot.page && !bot.page.isClosed()) {
+    //   const content = await bot.page.textContent('body');
+    //   console.log("Page content (might be minimal due to blocking):", content?.substring(0, 200));
+    // }
+
+    // Take a screenshot
+    const screenshotData = await bot.takeScreenshot({ fullPage: false, type: 'jpeg', quality: 80 });
     console.log("Screenshot taken (first 100 chars):", screenshotData.substring(0, 100));
-    // You could save the screenshot to a file here if needed
+    // import fs from 'fs';
+    // fs.writeFileSync('screenshot.jpg', Buffer.from(screenshotData.split(',')[1], 'base64'));
+
 
     // Example of using the raw page object
-    // const pageTitle = await bot.page.title();
-    // console.log("Page Title:", pageTitle);
+    // if (bot.page && !bot.page.isClosed()) {
+    //     const pageTitle = await bot.page.title();
+    //     console.log("Page Title:", pageTitle); // Title might be basic on httpbin
+    // }
+
 
   } catch (error) {
     console.error("Bot encountered an error:", error);
@@ -332,5 +384,13 @@ async function runBot() {
   }
 }
 
-runBot();
-*/
+// To run the example:
+// 1. Save the code as playwright-bot.js
+// 2. Run `npm install playwright` or `yarn add playwright`
+// 3. Make sure node version supports async/await and private class fields (Node >= 14 recommended)
+// 4. Uncomment the `runBot();` line below
+// 5. Run `node playwright-bot.js`
+
+// runBot();
+
+export { Bot }; // Export the class
