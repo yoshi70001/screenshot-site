@@ -7,7 +7,7 @@ app.use(cors({ origin: "" }));
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-const bot = new Bot();
+
 app.set("view engine", "ejs");
 app.use("/public", express.static("public"));
 app.get("/", async (req, res) => {
@@ -16,8 +16,11 @@ app.get("/", async (req, res) => {
 app.post("/:url", async (req, res) => {
   try {
     if (!req.params.url) throw Error("Url no definida");
+    const bot = new Bot();
+    await bot.startBrowser();
     await bot.setPage(atob(req.params.url));
     const route = await bot.takeScreenshot();
+    await bot.closeBrowser();
     // console.log(route);
     res.json({ status: true, content: route });
   } catch (error) {
@@ -27,5 +30,4 @@ app.post("/:url", async (req, res) => {
 
 app.listen(3001, async () => {
   console.log("listen to 3001");
-  await bot.startBrowser();
 });
